@@ -1,0 +1,12 @@
+# Configuration simple pour Azure
+# Copiez ce fichier vers terraform.tfvars et remplissez vos valeurs
+
+# Votre clé SSH publique (générée avec: ssh-keygen -t rsa -b 4096)
+# Puis: cat ~/.ssh/id_rsa.pub
+ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... votre-clé-publique-ici"
+
+# Optionnel: changer le nom du groupe de ressources
+# resource_group_name = "learningxp-rg"
+
+# Optionnel: changer la région Azure
+# location = "West Europe"

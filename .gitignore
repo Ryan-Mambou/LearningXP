@@ -43,4 +43,13 @@ Thumbs.db
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
+terraform.tfvars
 
+# SSH Keys
+.ssh/
+*.pem
+*.key
+
+
+# Terraform
+terraform.tfvars

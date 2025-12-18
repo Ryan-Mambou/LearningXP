@@ -35,28 +35,64 @@ Run tests with coverage:
 pytest tests/ --cov=app --cov-report=term-missing
 ```
 
+**Optionnel**: Vous pouvez aussi utiliser `./run_tests.sh` pour lancer les tests facilement (c'est juste un raccourci, pas nécessaire).
+
 ## CI/CD Pipeline
 
 This project includes a GitHub Actions CI/CD pipeline that:
 
+### Phase 1: Continuous Integration
 - ✅ Runs unit and integration tests automatically on push/PR
 - ✅ Tests against multiple Python versions (3.9, 3.10, 3.11)
 - ✅ Performs code quality checks with flake8
 - ✅ Generates test coverage reports
 - ✅ **Fails if bugs are introduced** - see `BUG_EXAMPLE.md` for details
 
+### Phase 2: Continuous Deployment
+- ✅ Automatically deploys to **Azure VM** after merge to `main`/`master`
+- ✅ Only deploys if all tests pass
+- ✅ **Uses Terraform for Infrastructure as Code deployment on Azure**
+- ✅ Creates and manages Azure resources (VM, network, security groups)
+- ✅ Uses SSH for secure deployment
+- ✅ Manages application as a systemd service
+- ✅ Zero-downtime deployment with automatic restart
+- ✅ Idempotent deployments (only redeploys when files change)
+
 ### How it works
 
-1. When you push code to `main`, `master`, or `develop` branches, the CI pipeline runs automatically
-2. Tests are executed across multiple Python versions
-3. Code quality checks are performed
-4. If any test fails, the pipeline fails and prevents deployment
+1. **On Push/PR**: Tests and linting run automatically
+2. **On Merge to Main**: If tests pass, Terraform deployment job triggers
+3. **Deployment Process** (via Terraform on Azure):
+   - Authenticates with Azure using Service Principal
+   - Terraform creates/manages Azure resources (Resource Group, VNet, VM, etc.)
+   - Connects to Azure VM via SSH
+   - Copies application files (app.py, requirements.txt)
+   - Installs Python dependencies
+   - Creates systemd service
+   - Starts the application automatically
+   - Only redeploys if files have changed (idempotent)
 
 ### Testing CI Failure
 
 To verify that the CI correctly fails when bugs are introduced:
 - See `BUG_EXAMPLE.md` for examples of bugs that will cause CI to fail
 - Introduce a bug, commit, and push - the CI should fail
+
+### Deployment Setup (Azure)
+
+**📖 Guide Simple:** Voir `SETUP_SIMPLE.md` pour un guide étape par étape.
+
+**Pour déploiement automatique (GitHub Actions):**
+1. Un seul secret nécessaire: `AZURE_CREDENTIALS`
+2. Créez-le avec: `az ad sp create-for-rbac --name "github-actions-learningxp" --role="Contributor" --scopes="/subscriptions/YOUR_SUB_ID" --sdk-auth`
+3. Ajoutez le JSON comme secret dans GitHub
+4. Mergez sur `main` → Déploiement automatique ! ✨
+
+**Pour déploiement local:**
+1. `cd terraform`
+2. `cp terraform.tfvars.example terraform.tfvars`
+3. Ajoutez votre clé SSH publique dans `terraform.tfvars`
+4. `terraform init && terraform apply`
 
 ## Endpoints
 

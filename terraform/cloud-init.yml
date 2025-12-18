@@ -1,0 +1,41 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - python3
+  - python3-pip
+  - python3-venv
+  - git
+  - nginx
+  - ufw
+
+runcmd:
+  - systemctl enable ufw
+  - ufw --force enable
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw allow 5000/tcp
+  - mkdir -p /opt/learningxp
+  - chown azureuser:azureuser /opt/learningxp
+
+write_files:
+  - path: /etc/systemd/system/learningxp.service
+    content: |
+      [Unit]
+      Description=LearningXP Flask Application
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=azureuser
+      WorkingDirectory=/opt/learningxp
+      Environment="PATH=/opt/learningxp/venv/bin"
+      ExecStart=/opt/learningxp/venv/bin/python /opt/learningxp/app.py
+      Restart=always
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+    permissions: '0644'
