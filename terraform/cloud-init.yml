@@ -24,7 +24,7 @@ write_files:
   - path: /etc/systemd/system/learningxp.service
     content: |
       [Unit]
-      Description=LearningXP Flask Application
+      Description=LearningXP Web Application
       After=network.target
 
       [Service]
@@ -32,7 +32,7 @@ write_files:
       User=azureuser
       WorkingDirectory=/opt/learningxp
       Environment="PATH=/opt/learningxp/venv/bin"
-      ExecStart=/opt/learningxp/venv/bin/python /opt/learningxp/app.py
+      ExecStart=/opt/learningxp/venv/bin/python /opt/learningxp/server.py
       Restart=always
       RestartSec=10
 

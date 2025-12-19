@@ -1,6 +1,10 @@
 # Fichiers de l'application à déployer
-data "local_file" "app_py" {
-  filename = "${path.module}/../app.py"
+data "local_file" "server_py" {
+  filename = "${path.module}/../server.py"
+}
+
+data "local_file" "index_html" {
+  filename = "${path.module}/../index.html"
 }
 
 data "local_file" "requirements" {
@@ -11,7 +15,8 @@ data "local_file" "requirements" {
 resource "null_resource" "deploy_app" {
   # Redéployer si les fichiers changent
   triggers = {
-    app_py_hash       = data.local_file.app_py.content_base64sha256
+    server_py_hash    = data.local_file.server_py.content_base64sha256
+    index_html_hash   = data.local_file.index_html.content_base64sha256
     requirements_hash = data.local_file.requirements.content_base64sha256
     vm_id             = azurerm_linux_virtual_machine.main.id
   }
@@ -35,13 +40,35 @@ resource "null_resource" "deploy_app" {
 
   # Étape 2: Copier les fichiers de l'application
   provisioner "file" {
-    source      = "${path.module}/../app.py"
-    destination = "/opt/learningxp/app.py"
+    source      = "${path.module}/../server.py"
+    destination = "/opt/learningxp/server.py"
+  }
+
+  provisioner "file" {
+    source      = "${path.module}/../index.html"
+    destination = "/opt/learningxp/index.html"
   }
 
   provisioner "file" {
     source      = "${path.module}/../requirements.txt"
     destination = "/opt/learningxp/requirements.txt"
+  }
+
+  # Copier le dossier static
+  provisioner "remote-exec" {
+    inline = [
+      "mkdir -p /opt/learningxp/static/css /opt/learningxp/static/js"
+    ]
+  }
+
+  provisioner "file" {
+    source      = "${path.module}/../static/css/style.css"
+    destination = "/opt/learningxp/static/css/style.css"
+  }
+
+  provisioner "file" {
+    source      = "${path.module}/../static/js/app.js"
+    destination = "/opt/learningxp/static/js/app.js"
   }
 
   # Étape 3: Installer Python et les dépendances
@@ -62,7 +89,7 @@ resource "null_resource" "deploy_app" {
     inline = [
       "sudo tee /etc/systemd/system/learningxp.service > /dev/null << 'EOF'",
       "[Unit]",
-      "Description=LearningXP Flask Application",
+      "Description=LearningXP Web Application",
       "After=network.target",
       "",
       "[Service]",
@@ -70,7 +97,7 @@ resource "null_resource" "deploy_app" {
       "User=azureuser",
       "WorkingDirectory=/opt/learningxp",
       "Environment='PATH=/opt/learningxp/venv/bin'",
-      "ExecStart=/opt/learningxp/venv/bin/python /opt/learningxp/app.py",
+      "ExecStart=/opt/learningxp/venv/bin/python /opt/learningxp/server.py",
       "Restart=always",
       "RestartSec=10",
       "",

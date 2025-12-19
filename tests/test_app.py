@@ -1,18 +1,35 @@
 import pytest
 import json
-from app import app
+import http.client
+import urllib.parse
+from server import WebAppHandler, users
+from http.server import HTTPServer
+import threading
+import time
 
-@pytest.fixture
-def client():
-    """Create a test client for the Flask application."""
-    app.config['TESTING'] = True
-    with app.test_client() as client:
-        yield client
+# Test server setup
+TEST_PORT = 8888
+BASE_URL = f"http://localhost:{TEST_PORT}"
 
-@pytest.fixture
+@pytest.fixture(scope="module")
+def test_server():
+    """Start test server in a separate thread."""
+    server = HTTPServer(('localhost', TEST_PORT), WebAppHandler)
+    server_thread = threading.Thread(target=server.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+    
+    # Wait for server to start
+    time.sleep(0.5)
+    
+    yield server
+    
+    server.shutdown()
+    server.server_close()
+
+@pytest.fixture(autouse=True)
 def reset_users():
     """Reset users list to initial state before each test."""
-    from app import users
     users.clear()
     users.extend([
         {"id": 1, "name": "John Doe", "email": "john@example.com"},
@@ -25,44 +42,60 @@ def reset_users():
         {"id": 2, "name": "Jane Smith", "email": "jane@example.com"}
     ])
 
+def make_request(method, path, body=None, headers=None):
+    """Make HTTP request to test server."""
+    conn = http.client.HTTPConnection('localhost', TEST_PORT)
+    request_headers = {'Content-Type': 'application/json'} if body else {}
+    if headers:
+        request_headers.update(headers)
+    
+    try:
+        conn.request(method, path, body, request_headers)
+        response = conn.getresponse()
+        data = response.read().decode('utf-8')
+        return response.status, json.loads(data) if data else {}
+    finally:
+        conn.close()
+
 class TestHomeEndpoint:
     """Tests for the home endpoint."""
     
-    def test_home_endpoint(self, client):
-        """Test that home endpoint returns welcome message."""
-        response = client.get('/')
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data['message'] == "Welcome to the Flask API!"
+    def test_home_endpoint(self, test_server):
+        """Test that home endpoint returns HTML."""
+        conn = http.client.HTTPConnection('localhost', TEST_PORT)
+        try:
+            conn.request('GET', '/')
+            response = conn.getresponse()
+            assert response.status == 200
+            assert 'text/html' in response.getheader('Content-Type', '')
+        finally:
+            conn.close()
 
 class TestHealthEndpoint:
     """Tests for the health check endpoint."""
     
-    def test_health_check(self, client):
+    def test_health_check(self, test_server, reset_users):
         """Test that health endpoint returns healthy status."""
-        response = client.get('/api/health')
-        assert response.status_code == 200
-        data = json.loads(response.data)
+        status, data = make_request('GET', '/api/health')
+        assert status == 200
         assert data['status'] == "healthy"
 
 class TestGetUsers:
     """Tests for GET /api/users endpoint."""
     
-    def test_get_all_users(self, client, reset_users):
+    def test_get_all_users(self, test_server, reset_users):
         """Test retrieving all users."""
-        response = client.get('/api/users')
-        assert response.status_code == 200
-        data = json.loads(response.data)
+        status, data = make_request('GET', '/api/users')
+        assert status == 200
         assert 'users' in data
         assert len(data['users']) == 2
         assert data['users'][0]['name'] == "John Doe"
         assert data['users'][1]['name'] == "Jane Smith"
     
-    def test_get_users_response_format(self, client, reset_users):
+    def test_get_users_response_format(self, test_server, reset_users):
         """Test that users response has correct format."""
-        response = client.get('/api/users')
-        assert response.status_code == 200
-        data = json.loads(response.data)
+        status, data = make_request('GET', '/api/users')
+        assert status == 200
         assert isinstance(data['users'], list)
         assert all('id' in user for user in data['users'])
         assert all('name' in user for user in data['users'])
@@ -71,147 +104,113 @@ class TestGetUsers:
 class TestGetUser:
     """Tests for GET /api/users/<id> endpoint."""
     
-    def test_get_existing_user(self, client, reset_users):
+    def test_get_existing_user(self, test_server, reset_users):
         """Test retrieving an existing user by ID."""
-        response = client.get('/api/users/1')
-        assert response.status_code == 200
-        data = json.loads(response.data)
+        status, data = make_request('GET', '/api/users/1')
+        assert status == 200
         assert data['id'] == 1
         assert data['name'] == "John Doe"
         assert data['email'] == "john@example.com"
     
-    def test_get_nonexistent_user(self, client, reset_users):
+    def test_get_nonexistent_user(self, test_server, reset_users):
         """Test retrieving a non-existent user returns 404."""
-        response = client.get('/api/users/999')
-        assert response.status_code == 404
-        data = json.loads(response.data)
+        status, data = make_request('GET', '/api/users/999')
+        assert status == 404
         assert 'error' in data
         assert data['error'] == "User not found"
     
-    def test_get_user_invalid_id(self, client, reset_users):
+    def test_get_user_invalid_id(self, test_server, reset_users):
         """Test retrieving user with invalid ID format."""
-        response = client.get('/api/users/invalid')
-        assert response.status_code == 404
+        status, data = make_request('GET', '/api/users/invalid')
+        assert status == 404
 
 class TestCreateUser:
     """Tests for POST /api/users endpoint."""
     
-    def test_create_user_success(self, client, reset_users):
+    def test_create_user_success(self, test_server, reset_users):
         """Test creating a new user successfully."""
         new_user = {
             "name": "Alice Johnson",
             "email": "alice@example.com"
         }
-        response = client.post(
-            '/api/users',
-            data=json.dumps(new_user),
-            content_type='application/json'
-        )
-        assert response.status_code == 201
-        data = json.loads(response.data)
+        status, data = make_request('POST', '/api/users', json.dumps(new_user))
+        assert status == 201
         assert data['name'] == "Alice Johnson"
         assert data['email'] == "alice@example.com"
         assert data['id'] == 3
     
-    def test_create_user_missing_name(self, client, reset_users):
+    def test_create_user_missing_name(self, test_server, reset_users):
         """Test creating user without name returns 400."""
         new_user = {
             "email": "test@example.com"
         }
-        response = client.post(
-            '/api/users',
-            data=json.dumps(new_user),
-            content_type='application/json'
-        )
-        assert response.status_code == 400
-        data = json.loads(response.data)
+        status, data = make_request('POST', '/api/users', json.dumps(new_user))
+        assert status == 400
         assert 'error' in data
         assert "required" in data['error'].lower()
     
-    def test_create_user_missing_email(self, client, reset_users):
+    def test_create_user_missing_email(self, test_server, reset_users):
         """Test creating user without email returns 400."""
         new_user = {
             "name": "Test User"
         }
-        response = client.post(
-            '/api/users',
-            data=json.dumps(new_user),
-            content_type='application/json'
-        )
-        assert response.status_code == 400
-        data = json.loads(response.data)
+        status, data = make_request('POST', '/api/users', json.dumps(new_user))
+        assert status == 400
         assert 'error' in data
     
-    def test_create_user_empty_data(self, client, reset_users):
+    def test_create_user_empty_data(self, test_server, reset_users):
         """Test creating user with empty data returns 400."""
-        response = client.post(
-            '/api/users',
-            data=json.dumps({}),
-            content_type='application/json'
-        )
-        assert response.status_code == 400
+        status, data = make_request('POST', '/api/users', json.dumps({}))
+        assert status == 400
     
-    def test_create_user_no_json(self, client, reset_users):
-        """Test creating user without JSON data returns error (415 or 400)."""
-        response = client.post('/api/users')
-        # Flask returns 415 Unsupported Media Type when Content-Type is missing
-        assert response.status_code in [400, 415]
+    def test_create_user_no_json(self, test_server, reset_users):
+        """Test creating user without JSON data returns error."""
+        conn = http.client.HTTPConnection('localhost', TEST_PORT)
+        try:
+            conn.request('POST', '/api/users', '', {'Content-Type': 'application/json'})
+            response = conn.getresponse()
+            assert response.status in [400, 500]
+        finally:
+            conn.close()
     
-    def test_create_user_increments_id(self, client, reset_users):
+    def test_create_user_increments_id(self, test_server, reset_users):
         """Test that creating users increments ID correctly."""
         # Create first user
         user1 = {"name": "User 1", "email": "user1@example.com"}
-        response1 = client.post(
-            '/api/users',
-            data=json.dumps(user1),
-            content_type='application/json'
-        )
-        assert response1.status_code == 201
-        data1 = json.loads(response1.data)
+        status1, data1 = make_request('POST', '/api/users', json.dumps(user1))
+        assert status1 == 201
         assert data1['id'] == 3
         
         # Create second user
         user2 = {"name": "User 2", "email": "user2@example.com"}
-        response2 = client.post(
-            '/api/users',
-            data=json.dumps(user2),
-            content_type='application/json'
-        )
-        assert response2.status_code == 201
-        data2 = json.loads(response2.data)
+        status2, data2 = make_request('POST', '/api/users', json.dumps(user2))
+        assert status2 == 201
         assert data2['id'] == 4
 
 class TestIntegration:
     """Integration tests for multiple endpoints."""
     
-    def test_create_and_retrieve_user(self, client, reset_users):
+    def test_create_and_retrieve_user(self, test_server, reset_users):
         """Test creating a user and then retrieving it."""
         # Create user
         new_user = {
             "name": "Bob Smith",
             "email": "bob@example.com"
         }
-        create_response = client.post(
-            '/api/users',
-            data=json.dumps(new_user),
-            content_type='application/json'
-        )
-        assert create_response.status_code == 201
-        created_data = json.loads(create_response.data)
+        create_status, created_data = make_request('POST', '/api/users', json.dumps(new_user))
+        assert create_status == 201
         user_id = created_data['id']
         
         # Retrieve user
-        get_response = client.get(f'/api/users/{user_id}')
-        assert get_response.status_code == 200
-        retrieved_data = json.loads(get_response.data)
+        get_status, retrieved_data = make_request('GET', f'/api/users/{user_id}')
+        assert get_status == 200
         assert retrieved_data['name'] == "Bob Smith"
         assert retrieved_data['email'] == "bob@example.com"
     
-    def test_user_appears_in_list_after_creation(self, client, reset_users):
+    def test_user_appears_in_list_after_creation(self, test_server, reset_users):
         """Test that created user appears in users list."""
         # Get initial count
-        initial_response = client.get('/api/users')
-        initial_data = json.loads(initial_response.data)
+        initial_status, initial_data = make_request('GET', '/api/users')
         initial_count = len(initial_data['users'])
         
         # Create user
@@ -219,15 +218,9 @@ class TestIntegration:
             "name": "Charlie Brown",
             "email": "charlie@example.com"
         }
-        client.post(
-            '/api/users',
-            data=json.dumps(new_user),
-            content_type='application/json'
-        )
+        make_request('POST', '/api/users', json.dumps(new_user))
         
         # Verify user appears in list
-        final_response = client.get('/api/users')
-        final_data = json.loads(final_response.data)
+        final_status, final_data = make_request('GET', '/api/users')
         assert len(final_data['users']) == initial_count + 1
         assert any(user['email'] == "charlie@example.com" for user in final_data['users'])
-

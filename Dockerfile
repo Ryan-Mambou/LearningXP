@@ -12,12 +12,13 @@ WORKDIR /app
 
 COPY --from=builder /root/.local /root/.local
 
-COPY app.py .
+# Copy application files
+COPY server.py .
+COPY index.html .
+COPY static/ ./static/
 
 ENV PATH=/root/.local/bin:$PATH
 
-
 EXPOSE 5000
 
-
-CMD ["python", "app.py"]
+CMD ["python", "server.py"]
